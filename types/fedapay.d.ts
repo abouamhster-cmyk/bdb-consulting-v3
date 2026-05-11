@@ -1,4 +1,3 @@
-// types/fedapay.d.ts
 export {};
 
 declare global {
