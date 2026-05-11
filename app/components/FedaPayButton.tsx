@@ -3,6 +3,13 @@
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
+// Supprime ce bloc si tu as déjà types/fedapay.d.ts
+// declare global {
+//   interface Window {
+//     FedaPay: any;
+//   }
+// }
+
 interface FedaPayButtonProps {
   amount: number;
   planName: string;
@@ -11,12 +18,6 @@ interface FedaPayButtonProps {
   customerName: string;
   onSuccess: () => void;
   onError: (error: string) => void;
-}
-
-declare global {
-  interface Window {
-    FedaPay: any;
-  }
 }
 
 export default function FedaPayButton({
