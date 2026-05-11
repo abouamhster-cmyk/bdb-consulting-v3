@@ -3,13 +3,6 @@
 import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
-// Supprime ce bloc si tu as déjà types/fedapay.d.ts
-// declare global {
-//   interface Window {
-//     FedaPay: any;
-//   }
-// }
-
 interface FedaPayButtonProps {
   amount: number;
   planName: string;
@@ -33,7 +26,6 @@ export default function FedaPayButton({
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
   useEffect(() => {
-    // Charger le script FedaPay une seule fois
     if (window.FedaPay) {
       setScriptLoaded(true);
       return;
@@ -46,10 +38,6 @@ export default function FedaPayButton({
       setScriptLoaded(true);
     };
     document.body.appendChild(script);
-
-    return () => {
-      // Nettoyage optionnel
-    };
   }, []);
 
   const handlePayment = async () => {
@@ -61,13 +49,19 @@ export default function FedaPayButton({
     setLoading(true);
 
     try {
-      // Initialiser FedaPay
+      const publicKey = process.env.NEXT_PUBLIC_FEDAPAY_PUBLIC_KEY;
+      
+      if (!publicKey) {
+        onError('Configuration de paiement manquante. Veuillez contacter le support.');
+        setLoading(false);
+        return;
+      }
+
       window.FedaPay.init({
-        public_key: process.env.NEXT_PUBLIC_FEDAPAY_PUBLIC_KEY,
+        public_key: publicKey,
         version: 'v1.1'
       });
 
-      // Créer la transaction
       const response = await fetch('/api/fedapay/create-transaction-front', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,7 +84,6 @@ export default function FedaPayButton({
 
       const transactionId = data.transactionId;
 
-      // Ouvrir le popup de paiement
       window.FedaPay.popup({
         transaction_id: transactionId,
         callback: (result: any) => {
