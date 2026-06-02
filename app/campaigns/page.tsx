@@ -6,9 +6,7 @@ import { useRouter } from 'next/navigation';
 import { 
   FolderKanban, Plus, Trash2, ExternalLink, 
   Calendar, CheckCircle, Clock, X, Copy,
-  Edit2, MoreHorizontal, Filter, Search,
-  Loader2, RefreshCw, AlertCircle, TrendingUp,
-  Target, Eye, BarChart3
+  Edit2, Search, Loader2, RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -34,7 +32,7 @@ export default function CampaignsPage() {
   const [newCampaign, setNewCampaign] = useState({ name: '', description: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [user, setUser] = useState<any>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUserAndCampaigns();
@@ -46,20 +44,27 @@ export default function CampaignsPage() {
       router.push('/auth');
       return;
     }
-    setUser(user);
+    setUserId(user.id);
     await loadCampaigns();
   };
 
   const loadCampaigns = async () => {
+    if (!userId) return;
+    
+    setLoading(true);
     const { data, error } = await supabase
       .from('campaigns')
       .select('*')
-      .eq('user_id', user?.id)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) {
       toast.error('Erreur chargement campagnes');
-    } else if (data) {
+      setLoading(false);
+      return;
+    }
+    
+    if (data) {
       const campaignsWithCounts = await Promise.all(
         data.map(async (campaign) => {
           const { count: total } = await supabase
@@ -92,16 +97,24 @@ export default function CampaignsPage() {
     setLoading(false);
   };
 
+  const refreshCampaigns = async () => {
+    setRefreshing(true);
+    await loadCampaigns();
+    toast.success('Campagnes actualisées');
+    setRefreshing(false);
+  };
+
   const createCampaign = async () => {
     if (!newCampaign.name.trim()) {
       toast.error('Veuillez donner un nom à la campagne');
       return;
     }
 
+    setLoading(true);
     const { data, error } = await supabase
       .from('campaigns')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         name: newCampaign.name,
         description: newCampaign.description,
         status: 'draft'
@@ -111,6 +124,7 @@ export default function CampaignsPage() {
 
     if (error) {
       toast.error('Erreur: ' + error.message);
+      setLoading(false);
     } else {
       toast.success('Campagne créée');
       setShowCreateModal(false);
@@ -118,6 +132,7 @@ export default function CampaignsPage() {
       await loadCampaigns();
       router.push(`/campaign-vertical?campaignId=${data.id}`);
     }
+    setLoading(false);
   };
 
   const updateCampaign = async () => {
@@ -127,6 +142,7 @@ export default function CampaignsPage() {
       return;
     }
 
+    setLoading(true);
     const { error } = await supabase
       .from('campaigns')
       .update({
@@ -144,16 +160,21 @@ export default function CampaignsPage() {
       setEditingCampaign(null);
       await loadCampaigns();
     }
+    setLoading(false);
   };
 
   const deleteCampaign = async (campaign: Campaign) => {
     if (!confirm(`Supprimer la campagne "${campaign.name}" ? Tous les posts associés seront également supprimés.`)) return;
 
+    setLoading(true);
+    
+    // Supprimer les posts associés
     await supabase
       .from('post_skeleton')
       .delete()
       .eq('campaign_id', campaign.id);
 
+    // Supprimer la campagne
     const { error } = await supabase
       .from('campaigns')
       .delete()
@@ -165,18 +186,23 @@ export default function CampaignsPage() {
       toast.success('Campagne supprimée');
       await loadCampaigns();
     }
+    setLoading(false);
   };
 
   const duplicateCampaign = async (campaign: Campaign) => {
+    setLoading(true);
+    
+    // Récupérer les posts originaux
     const { data: originalPosts } = await supabase
       .from('post_skeleton')
       .select('*')
       .eq('campaign_id', campaign.id);
 
+    // Créer la nouvelle campagne
     const { data: newCamp, error: campError } = await supabase
       .from('campaigns')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         name: `${campaign.name} (copie)`,
         description: campaign.description,
         status: 'draft'
@@ -186,19 +212,25 @@ export default function CampaignsPage() {
 
     if (campError) {
       toast.error('Erreur duplication');
+      setLoading(false);
       return;
     }
 
+    // Dupliquer les posts
     if (originalPosts && originalPosts.length > 0) {
       const newPosts = originalPosts.map(post => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { id, created_at, ...rest } = post;
         return {
           ...rest,
           campaign_id: newCamp.id,
-          user_id: user.id,
+          user_id: userId,
           status_skeleton: 'pending',
           status_text: 'pending',
-          status_image: 'pending',
+          status_image_linkedin: 'pending',
+          status_image_instagram: 'pending',
+          status_image_facebook: 'pending',
+          status_image_twitter: 'pending',
           status_video: 'pending',
           status_scheduled: 'pending'
         };
@@ -211,6 +243,23 @@ export default function CampaignsPage() {
 
     toast.success('Campagne dupliquée');
     await loadCampaigns();
+    setLoading(false);
+  };
+
+  const activateCampaign = async (campaign: Campaign) => {
+    setLoading(true);
+    const { error } = await supabase
+      .from('campaigns')
+      .update({ status: 'active', updated_at: new Date().toISOString() })
+      .eq('id', campaign.id);
+    
+    if (error) {
+      toast.error('Erreur: ' + error.message);
+    } else {
+      toast.success('Campagne activée');
+      await loadCampaigns();
+    }
+    setLoading(false);
   };
 
   const getStatusBadge = (status: string) => {
@@ -239,7 +288,7 @@ export default function CampaignsPage() {
     return true;
   });
 
-  if (loading) {
+  if (loading && campaigns.length === 0) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -263,10 +312,11 @@ export default function CampaignsPage() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => loadCampaigns()}
-              className="p-2 text-gray-400 hover:text-gray-600 transition"
+              onClick={refreshCampaigns}
+              disabled={refreshing}
+              className="p-2 text-gray-400 hover:text-gray-600 transition disabled:opacity-50"
             >
-              <RefreshCw className="w-5 h-5" />
+              <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={() => setShowCreateModal(true)}
@@ -293,7 +343,7 @@ export default function CampaignsPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-200 rounded-lg"
+            className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">Tous les statuts</option>
             <option value="draft">Brouillons</option>
@@ -328,7 +378,7 @@ export default function CampaignsPage() {
                 <div className="p-5">
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold text-gray-900 text-lg">{campaign.name}</h3>
                         {getStatusBadge(campaign.status)}
                       </div>
@@ -408,14 +458,7 @@ export default function CampaignsPage() {
                     </button>
                     {campaign.status === 'draft' && (
                       <button
-                        onClick={async () => {
-                          await supabase
-                            .from('campaigns')
-                            .update({ status: 'active' })
-                            .eq('id', campaign.id);
-                          await loadCampaigns();
-                          toast.success('Campagne activée');
-                        }}
+                        onClick={() => activateCampaign(campaign)}
                         className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition"
                       >
                         Activer
@@ -473,7 +516,8 @@ export default function CampaignsPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={createCampaign}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-2.5 rounded-xl font-medium hover:shadow-lg transition"
+                disabled={loading}
+                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-2.5 rounded-xl font-medium hover:shadow-lg transition disabled:opacity-50"
               >
                 Créer
               </button>
@@ -542,7 +586,8 @@ export default function CampaignsPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={updateCampaign}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-2.5 rounded-xl font-medium hover:shadow-lg transition"
+                disabled={loading}
+                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-2.5 rounded-xl font-medium hover:shadow-lg transition disabled:opacity-50"
               >
                 Sauvegarder
               </button>
