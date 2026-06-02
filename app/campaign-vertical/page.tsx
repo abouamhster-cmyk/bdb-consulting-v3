@@ -135,8 +135,12 @@ export default function CampaignVerticalPage() {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    if (params?.selected_platforms?.length > 0) {
-      const filtered = allPlatforms.filter(p => params.selected_platforms.includes(p.id));
+    const selectedPlatforms: string[] = Array.isArray(params?.selected_platforms)
+      ? params.selected_platforms
+      : [];
+    
+    if (selectedPlatforms.length > 0) {
+      const filtered = allPlatforms.filter(p => selectedPlatforms.includes(p.id));
       setActivePlatforms(filtered.length > 0 ? filtered : allPlatforms);
     } else {
       setActivePlatforms(allPlatforms);
