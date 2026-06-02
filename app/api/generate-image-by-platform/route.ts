@@ -115,10 +115,9 @@ RÈGLES STRICTES:
 
     console.log('✅ Image reçue en base64');
 
-    const imageBuffer = Buffer.from(b64, 'base64');
-    let finalImageBuffer = imageBuffer;
+    const imageBuffer: Buffer = Buffer.from(b64, 'base64');
+    let finalImageBuffer: Buffer = imageBuffer;
 
-    // Récupérer le vrai logo de l'entreprise depuis la base
     const { data: config } = await supabaseAdmin
       .from('company_config')
       .select('logo_url')
@@ -136,26 +135,30 @@ RÈGLES STRICTES:
         }
 
         const logoArrayBuffer = await logoResponse.arrayBuffer();
-        const logoBuffer = Buffer.from(logoArrayBuffer);
+        const logoBuffer: Buffer = Buffer.from(logoArrayBuffer);
 
-        const resizedLogo = await sharp(logoBuffer)
-          .resize({
-            width: 160,
-            withoutEnlargement: true,
-          })
-          .png()
-          .toBuffer();
+        const resizedLogo: Buffer = Buffer.from(
+          await sharp(logoBuffer)
+            .resize({
+              width: 160,
+              withoutEnlargement: true,
+            })
+            .png()
+            .toBuffer()
+        );
 
-        finalImageBuffer = await sharp(imageBuffer)
-          .composite([
-            {
-              input: resizedLogo,
-              gravity: 'southeast',
-              blend: 'over',
-            },
-          ])
-          .png()
-          .toBuffer();
+        finalImageBuffer = Buffer.from(
+          await sharp(imageBuffer)
+            .composite([
+              {
+                input: resizedLogo,
+                gravity: 'southeast',
+                blend: 'over',
+              },
+            ])
+            .png()
+            .toBuffer()
+        );
 
         console.log('✅ Vrai logo ajouté sur l’image');
       } catch (logoError) {
