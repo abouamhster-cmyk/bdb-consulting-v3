@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
     const { data: post, error: postError } = await supabaseAdmin
       .from('post_skeleton')
-      .select('*')
+      .select('id, user_id')
       .eq('id', postId)
       .eq('user_id', userId)
       .single();
@@ -27,16 +27,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const updateData: Record<string, string> = {
-      status_scheduled: 'scheduled',
-      scheduled_at: scheduledDate,
-      scheduled_platform: platform,
-      updated_at: new Date().toISOString(),
-    };
-
     const { error: updateError } = await supabaseAdmin
       .from('post_skeleton')
-      .update(updateData)
+      .update({
+        status_scheduled: 'scheduled',
+        scheduled_at: scheduledDate,
+        scheduled_platform: platform,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', postId)
       .eq('user_id', userId);
 
@@ -49,9 +47,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Post programmé en interne sur ${platform}`,
-      scheduledDate,
+      message: `Post programmé en interne pour ${platform}`,
       platform,
+      scheduledDate,
     });
 
   } catch (error: any) {
