@@ -35,6 +35,7 @@ interface Post {
   video_script?: string;
   scheduled_at?: string;
   scheduled_platform?: string;
+  scheduled_platforms?: Record<string, { scheduled_at?: string; status?: string }>;
   status_text: string;
   status_image_linkedin: string;
   status_image_instagram: string;
@@ -51,6 +52,21 @@ interface Platform {
   icon: any;
   color: string;
 }
+
+type ScheduleSettings = Record<string, { date: string; time: string }>;
+
+const formatDateForInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getSafeDate = (value?: string) => {
+  if (!value) return new Date();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
 
 export default function CampaignVerticalPage() {
   const router = useRouter();
@@ -73,6 +89,7 @@ export default function CampaignVerticalPage() {
   const [showScheduler, setShowScheduler] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedTime, setSelectedTime] = useState('10:00');
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>({});
   const [promptsReady, setPromptsReady] = useState(false);
   const [scriptsReady, setScriptsReady] = useState(false);
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
@@ -89,7 +106,6 @@ export default function CampaignVerticalPage() {
   const [chatPostId, setChatPostId] = useState('');
   const [chatCurrentContent, setChatCurrentContent] = useState('');
 
-  const timeSlots = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
 
   const allPlatforms: Platform[] = [
     { id: 'linkedin', name: 'LinkedIn', icon: FaLinkedin, color: 'bg-[#0077b5]' },
@@ -117,6 +133,27 @@ export default function CampaignVerticalPage() {
       generateAllContents();
     }
   }, [shouldAutoGenerate, posts, generating, hasGeneratedOnce]);
+
+  useEffect(() => {
+    if (activePlatforms.length === 0) return;
+
+    const defaultDate = formatDateForInput(selectedDate);
+
+    setScheduleSettings(prev => {
+      const next = { ...prev };
+
+      for (const platform of activePlatforms) {
+        if (!next[platform.id]) {
+          next[platform.id] = {
+            date: defaultDate,
+            time: selectedTime,
+          };
+        }
+      }
+
+      return next;
+    });
+  }, [activePlatforms, selectedDate, selectedTime]);
 
   const loadData = async () => {
     setLoading(true);
@@ -464,14 +501,56 @@ export default function CampaignVerticalPage() {
     toast.success('Étape validée');
   };
 
+  const getScheduledPlatforms = (post?: Post) => {
+    if (!post?.scheduled_platforms || typeof post.scheduled_platforms !== 'object') {
+      return {};
+    }
+
+    return post.scheduled_platforms;
+  };
+
+  const getPlatformSchedule = (platform: string) => {
+    const schedules = getScheduledPlatforms(currentPost);
+
+    if (schedules[platform]) {
+      return schedules[platform];
+    }
+
+    if (currentPost?.scheduled_platform === platform && currentPost?.scheduled_at) {
+      return { scheduled_at: currentPost.scheduled_at, status: currentPost.status_scheduled || 'scheduled' };
+    }
+
+    return null;
+  };
+
+  const updatePlatformScheduleSetting = (platform: string, field: 'date' | 'time', value: string) => {
+    setScheduleSettings(prev => ({
+      ...prev,
+      [platform]: {
+        date: prev[platform]?.date || formatDateForInput(selectedDate),
+        time: prev[platform]?.time || selectedTime,
+        [field]: value,
+      },
+    }));
+  };
+
   const schedulePost = async (platform: string) => {
     if (!currentPost) return;
 
     setScheduling(true);
 
-    const dateTime = new Date(selectedDate);
-    const [hours, minutes] = selectedTime.split(':');
-    dateTime.setHours(parseInt(hours), parseInt(minutes), 0);
+    const settings = scheduleSettings[platform] || {
+      date: formatDateForInput(selectedDate),
+      time: selectedTime,
+    };
+
+    const dateTime = new Date(`${settings.date}T${settings.time}:00`);
+
+    if (Number.isNaN(dateTime.getTime())) {
+      toast.error('Date ou heure invalide');
+      setScheduling(false);
+      return;
+    }
 
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -488,18 +567,34 @@ export default function CampaignVerticalPage() {
         postId: currentPost.id,
         platform,
         userId: user.id,
-        scheduledDate: dateTime.toISOString()
+        scheduledDate: dateTime.toISOString(),
       })
     });
 
     const result = await response.json();
 
     if (result.success) {
-      await updatePost(currentPost.id, {
-        status_scheduled: 'scheduled',
-        scheduled_at: dateTime.toISOString(),
-        scheduled_platform: platform
-      });
+      const previousSchedules = getScheduledPlatforms(currentPost);
+      const nextSchedules = {
+        ...previousSchedules,
+        [platform]: {
+          scheduled_at: dateTime.toISOString(),
+          status: 'scheduled',
+        },
+      };
+
+      setPosts(prev => prev.map(post => (
+        post.id === currentPost.id
+          ? {
+              ...post,
+              status_scheduled: 'scheduled',
+              scheduled_at: dateTime.toISOString(),
+              scheduled_platform: platform,
+              scheduled_platforms: nextSchedules,
+              updated_at: new Date().toISOString(),
+            }
+          : post
+      )));
 
       toast.success(`✅ Post programmé en interne pour ${platform}`);
       setShowScheduler(false);
@@ -567,7 +662,13 @@ export default function CampaignVerticalPage() {
     return currentPost?.[`image_prompt_${platform}`];
   };
 
-  const isScheduled = currentPost?.status_scheduled === 'scheduled' || currentPost?.status_scheduled === 'completed';
+  const isScheduled = Boolean(
+    currentPost && (
+      Object.keys(getScheduledPlatforms(currentPost)).length > 0 ||
+      currentPost.status_scheduled === 'scheduled' ||
+      currentPost.status_scheduled === 'completed'
+    )
+  );
 
   const ProgressBar = () => (
     <div className="mb-6 p-4 bg-white rounded-xl shadow-sm border">
@@ -968,147 +1069,174 @@ export default function CampaignVerticalPage() {
 
               {currentStep === 3 && (
                 <div className="space-y-5">
-                  {isScheduled ? (
-                    <div className="text-center text-green-600 py-6 bg-green-50 rounded-xl border border-green-100">
-                      <CheckCircle className="w-6 h-6 mx-auto mb-2" />
-                      <p className="font-semibold">Post programmé en interne !</p>
-                      {currentPost.scheduled_platform && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Plateforme : {currentPost.scheduled_platform}
-                        </p>
-                      )}
-                      {currentPost.scheduled_at && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Le {new Date(currentPost.scheduled_at).toLocaleString('fr-FR')}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="bg-gray-50 border rounded-xl p-4">
-                        <p className="text-sm text-gray-500 mb-1">Type de post</p>
-                        <p className="font-semibold text-gray-900">
-                          {currentPost.content_type || 'Post marketing'}
-                        </p>
-                        <p className="text-sm text-gray-500 mt-2">
-                          Choisissez une date, une heure et la plateforme. La programmation est enregistrée dans la base, sans Buffer.
-                        </p>
+                  {isScheduled && (
+                    <div className="text-green-700 py-6 bg-green-50 rounded-xl border border-green-100">
+                      <div className="flex items-center justify-center gap-2 mb-3">
+                        <CheckCircle className="w-6 h-6" />
+                        <p className="font-semibold">Programmation enregistrée</p>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white border rounded-xl p-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Date de publication
-                          </label>
-                          <input
-                            type="date"
-                            value={selectedDate.toISOString().split('T')[0]}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (!value) return;
-                              const nextDate = new Date(value);
-                              if (!Number.isNaN(nextDate.getTime())) {
-                                setSelectedDate(nextDate);
-                              }
-                            }}
-                            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
-
-                        <div className="bg-white border rounded-xl p-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Heure de publication
-                          </label>
-                          <input
-                            type="time"
-                            value={selectedTime}
-                            onChange={(e) => setSelectedTime(e.target.value)}
-                            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-                        <p className="text-sm text-gray-600">Publication prévue</p>
-                        <p className="font-semibold text-gray-900">
-                          {selectedDate.toLocaleDateString('fr-FR')} à {selectedTime}
-                        </p>
-                      </div>
-
-                      <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 px-4">
                         {activePlatforms.map(platform => {
                           const PlatformIcon = platform.icon;
-                          const text = currentPost[`text_${platform.id}`];
-                          const image = currentPost[`image_url_${platform.id}`];
-                          const hasVideo = Boolean(currentPost.video_url);
+                          const platformSchedule = getPlatformSchedule(platform.id);
+
+                          if (!platformSchedule?.scheduled_at) return null;
 
                           return (
-                            <div key={platform.id} className="border rounded-xl p-4 bg-white">
-                              <div className="flex justify-between items-center mb-3">
-                                <div className="flex items-center gap-2">
-                                  <PlatformIcon className="w-5 h-5" />
-                                  <span className="font-semibold">{platform.name}</span>
-                                </div>
-                                <span className={`text-xs px-2 py-1 rounded-full ${text ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                                  {text ? 'Texte prêt' : 'Texte manquant'}
-                                </span>
+                            <div key={platform.id} className="bg-white rounded-lg p-3 border text-left">
+                              <div className="flex items-center gap-2 text-gray-900 font-medium">
+                                <PlatformIcon className="w-4 h-4" />
+                                {platform.name}
                               </div>
-
-                              {text ? (
-                                <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg mb-3 line-clamp-4 whitespace-pre-wrap">
-                                  {text}
-                                </p>
-                              ) : (
-                                <p className="text-sm text-red-500 bg-red-50 p-3 rounded-lg mb-3">
-                                  Générez d'abord le texte pour {platform.name} avant de programmer.
-                                </p>
-                              )}
-
-                              <div className="grid grid-cols-2 gap-3 mb-3">
-                                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                  <p className="text-xs text-gray-500 mb-1">Image</p>
-                                  <p className={image ? 'text-green-600 text-sm font-medium' : 'text-red-500 text-sm'}>
-                                    {image ? 'Disponible' : 'Non générée'}
-                                  </p>
-                                </div>
-
-                                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                                  <p className="text-xs text-gray-500 mb-1">Vidéo</p>
-                                  <p className={hasVideo ? 'text-green-600 text-sm font-medium' : 'text-gray-400 text-sm'}>
-                                    {hasVideo ? 'Disponible' : 'Optionnelle'}
-                                  </p>
-                                </div>
-                              </div>
-
-                              {image && (
-                                <div className="mb-3 rounded-lg overflow-hidden border bg-gray-100">
-                                  <img
-                                    src={image}
-                                    alt={`Aperçu ${platform.name}`}
-                                    className="w-full max-h-64 object-contain bg-gray-100"
-                                  />
-                                </div>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => schedulePost(platform.id)}
-                                disabled={!text || scheduling}
-                                className={`${platform.color} w-full text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50`}
-                              >
-                                {scheduling ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <PlatformIcon className="w-4 h-4" />
-                                )}
-                                Programmer sur {platform.name}
-                              </button>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Le {getSafeDate(platformSchedule.scheduled_at).toLocaleString('fr-FR')}
+                              </p>
                             </div>
                           );
                         })}
                       </div>
-                    </>
+                    </div>
                   )}
+
+                  <div className="bg-gray-50 border rounded-xl p-4">
+                    <p className="text-sm text-gray-500 mb-1">Type de post</p>
+                    <p className="font-semibold text-gray-900">
+                      {currentPost.content_type || 'Post marketing'}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Choisissez une date et une heure différentes pour chaque plateforme. La programmation est enregistrée en interne, sans Buffer.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {activePlatforms.map(platform => {
+                      const PlatformIcon = platform.icon;
+                      const text = currentPost[`text_${platform.id}`];
+                      const image = currentPost[`image_url_${platform.id}`];
+                      const hasVideo = Boolean(currentPost.video_url);
+                      const platformSchedule = getPlatformSchedule(platform.id);
+                      const settings = scheduleSettings[platform.id] || {
+                        date: formatDateForInput(selectedDate),
+                        time: selectedTime,
+                      };
+
+                      return (
+                        <div key={platform.id} className="border rounded-xl p-4 bg-white">
+                          <div className="flex justify-between items-center mb-3">
+                            <div className="flex items-center gap-2">
+                              <PlatformIcon className="w-5 h-5" />
+                              <span className="font-semibold">{platform.name}</span>
+                            </div>
+                            <span className={`text-xs px-2 py-1 rounded-full ${text ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                              {text ? 'Texte prêt' : 'Texte manquant'}
+                            </span>
+                          </div>
+
+                          {platformSchedule?.scheduled_at && (
+                            <div className="mb-3 bg-green-50 border border-green-100 rounded-lg p-3 text-sm text-green-700">
+                              Déjà programmé : {getSafeDate(platformSchedule.scheduled_at).toLocaleString('fr-FR')}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Date pour {platform.name}
+                              </label>
+                              <input
+                                type="date"
+                                value={settings.date}
+                                onChange={(e) => updatePlatformScheduleSetting(platform.id, 'date', e.target.value)}
+                                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Heure pour {platform.name}
+                              </label>
+                              <input
+                                type="time"
+                                value={settings.time}
+                                onChange={(e) => updatePlatformScheduleSetting(platform.id, 'time', e.target.value)}
+                                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="bg-blue-50 rounded-lg p-3 mb-3 border border-blue-100">
+                            <p className="text-xs text-gray-600">Publication prévue sur {platform.name}</p>
+                            <p className="font-semibold text-gray-900">
+                              {getSafeDate(`${settings.date}T${settings.time}:00`).toLocaleString('fr-FR')}
+                            </p>
+                          </div>
+
+                          {text ? (
+                            <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg mb-3 line-clamp-4 whitespace-pre-wrap">
+                              {text}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-red-500 bg-red-50 p-3 rounded-lg mb-3">
+                              Générez d'abord le texte pour {platform.name} avant de programmer.
+                            </p>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div className="bg-gray-50 rounded-lg p-3 text-center">
+                              <p className="text-xs text-gray-500 mb-1">Image</p>
+                              <p className={image ? 'text-green-600 text-sm font-medium' : 'text-red-500 text-sm'}>
+                                {image ? 'Disponible' : 'Non générée'}
+                              </p>
+                            </div>
+
+                            <div className="bg-gray-50 rounded-lg p-3 text-center">
+                              <p className="text-xs text-gray-500 mb-1">Vidéo</p>
+                              <p className={hasVideo ? 'text-green-600 text-sm font-medium' : 'text-gray-400 text-sm'}>
+                                {hasVideo ? 'Disponible' : 'Optionnelle'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {image && (
+                            <div className="mb-3 rounded-lg overflow-hidden border bg-gray-100">
+                              <img
+                                src={image}
+                                alt={`Aperçu ${platform.name}`}
+                                className="w-full max-h-[450px] object-contain bg-gray-100"
+                              />
+                            </div>
+                          )}
+
+                          {currentPost.video_url && (
+                            <div className="mb-3 rounded-lg overflow-hidden border bg-black">
+                              <video
+                                src={currentPost.video_url}
+                                controls
+                                playsInline
+                                preload="metadata"
+                                className="w-full max-h-[420px] bg-black"
+                              />
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => schedulePost(platform.id)}
+                            disabled={!text || scheduling}
+                            className={`${platform.color} w-full text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50`}
+                          >
+                            {scheduling ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <PlatformIcon className="w-4 h-4" />
+                            )}
+                            {platformSchedule?.scheduled_at ? `Reprogrammer sur ${platform.name}` : `Programmer sur ${platform.name}`}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
 
                   <button
                     type="button"
