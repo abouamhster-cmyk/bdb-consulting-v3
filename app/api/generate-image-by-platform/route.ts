@@ -6,18 +6,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-type PlanLimits = {
-  starter: number;
-  pro: number;
-  business: number;
-};
-
-const planLimits: PlanLimits = {
-  starter: 0,
-  pro: 50,
-  business: 200
-};
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -45,8 +33,7 @@ export async function POST(request: Request) {
     let imagePrompt = post[promptField];
 
     if (!imagePrompt) {
-      imagePrompt = `Image professionnelle pour illustrer ce post: ${post.title}. Style moderne, épuré, professionnel. Format carré.`;
-      console.log('⚠️ Utilisation du prompt par défaut');
+      imagePrompt = `Professional image for: ${post.title}. Modern, clean, professional style. Square format 1024x1024.`;
     }
 
     // Vérifier les crédits
@@ -56,23 +43,30 @@ export async function POST(request: Request) {
       .eq('user_id', userId)
       .maybeSingle();
 
-    const planName = (subscription?.plan_name || 'starter') as keyof PlanLimits;
-    const limit = planLimits[planName] || 0;
+    const planName = subscription?.plan_name || 'starter';
+    const limit = { starter: 0, pro: 50, business: 200 }[planName] || 0;
     const currentUsage = subscription?.usage_image || 0;
 
-    if (limit === 0 || currentUsage >= limit) {
+    if (limit === 0) {
+      return NextResponse.json({ 
+        error: 'Fonctionnalité non disponible. Passez au plan Pro ou Business.' 
+      }, { status: 402 });
+    }
+
+    if (currentUsage >= limit) {
       return NextResponse.json({ 
         error: `Crédits images épuisés (${currentUsage}/${limit})` 
       }, { status: 402 });
     }
 
-    // Appel à DALL-E 2 (plus stable et disponible sur tous les comptes)
-    console.log('🤖 Appel à DALL-E 2...');
     let imageUrl = '';
+    let usedFallback = false;
 
     try {
+      console.log('🎨 Génération avec gpt-image-1...');
+      
       const response = await openai.images.generate({
-        model: 'dall-e-2',        // ← Changé de dall-e-3 à dall-e-2
+        model: 'gpt-image-1',  // ← Changement ici
         prompt: imagePrompt,
         n: 1,
         size: '1024x1024',
@@ -80,27 +74,43 @@ export async function POST(request: Request) {
 
       if (response.data?.[0]?.url) {
         imageUrl = response.data[0].url;
-        console.log('✅ Image générée avec succès via DALL-E 2');
+        console.log('✅ Image générée avec succès');
       } else {
         throw new Error('Pas d\'URL dans la réponse');
       }
     } catch (openaiError: any) {
       console.error('❌ Erreur OpenAI:', openaiError.message);
-      if (openaiError.response?.data) {
-        console.error('Détails:', JSON.stringify(openaiError.response.data, null, 2));
+      
+      // Essayer avec un autre modèle si le premier échoue
+      try {
+        console.log('🔄 Tentative avec gpt-image-1-mini...');
+        const response = await openai.images.generate({
+          model: 'gpt-image-1-mini',
+          prompt: imagePrompt,
+          n: 1,
+          size: '1024x1024',
+        });
+        
+        if (response.data?.[0]?.url) {
+          imageUrl = response.data[0].url;
+          console.log('✅ Image générée avec gpt-image-1-mini');
+        } else {
+          throw new Error('Pas d\'URL');
+        }
+      } catch (secondError: any) {
+        console.error('❌ Échec aussi avec gpt-image-1-mini');
+        imageUrl = `https://picsum.photos/seed/${postId}-${platform}-${Date.now()}/1024/1024`;
+        usedFallback = true;
       }
-      // Fallback: image placeholder
-      imageUrl = `https://picsum.photos/seed/${postId}-${platform}-${Date.now()}/1024/1024`;
-      console.log('⚠️ Fallback utilisé');
     }
 
-    // Mettre à jour les crédits
+    // Incrémenter le compteur
     await supabaseAdmin
       .from('subscriptions')
       .update({ usage_image: currentUsage + 1 })
       .eq('user_id', userId);
 
-    // Sauvegarder l'image
+    // Sauvegarder
     const updateData: Record<string, string> = {
       [`image_url_${platform}`]: imageUrl,
       [`status_image_${platform}`]: 'completed',
@@ -114,7 +124,11 @@ export async function POST(request: Request) {
 
     console.log(`✅ Image sauvegardée pour ${platform}`);
 
-    return NextResponse.json({ success: true, imageUrl });
+    return NextResponse.json({ 
+      success: true, 
+      imageUrl,
+      fallback: usedFallback
+    });
 
   } catch (error: any) {
     console.error('❌ Erreur générale:', error);
