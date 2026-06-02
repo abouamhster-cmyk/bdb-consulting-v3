@@ -8,28 +8,31 @@ const openai = new OpenAI({
 
 const getPlanLimit = (planName: string): number => {
   switch (planName) {
-    case 'pro': return 50;
-    case 'business': return 200;
-    default: return 0;
+    case 'pro':
+      return 50;
+    case 'business':
+      return 200;
+    default:
+      return 0;
   }
 };
 
 export async function POST(request: Request) {
   const startTime = Date.now();
-  
+
   try {
     const body = await request.json();
     const { postId, platform, userId } = body;
 
     console.log('🔵 API image appelée', { postId, platform, userId });
-    console.log('⏱️ Étape 1: Paramètres reçus');
 
     if (!postId || !platform || !userId) {
-      return NextResponse.json({ error: 'Données manquantes' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Données manquantes' },
+        { status: 400 }
+      );
     }
 
-    // Récupérer le post
-    console.log('⏱️ Étape 2: Récupération du post...');
     const { data: post, error: postError } = await supabaseAdmin
       .from('post_skeleton')
       .select('*')
@@ -38,24 +41,23 @@ export async function POST(request: Request) {
 
     if (postError || !post) {
       console.error('❌ Post non trouvé:', postError);
-      return NextResponse.json({ error: 'Post non trouvé' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Post non trouvé' },
+        { status: 404 }
+      );
     }
-    console.log('✅ Post trouvé:', post.title);
-    console.log('⏱️ Étape 3: Post récupéré');
 
-    // Récupérer le prompt
+    console.log('✅ Post trouvé:', post.title);
+
     const promptField = `image_prompt_${platform}`;
     let imagePrompt = post[promptField];
-    console.log(`⏱️ Étape 4: Prompt field = ${promptField}, existe = ${!!imagePrompt}`);
 
     if (!imagePrompt) {
       imagePrompt = `Professional image for: ${post.title}. Modern, clean, professional style. Square format 1024x1024.`;
-      console.log('⚠️ Utilisation du prompt par défaut');
     }
-    console.log('📝 Prompt:', imagePrompt.substring(0, 100) + '...');
 
-    // Vérifier les crédits
-    console.log('⏱️ Étape 5: Vérification des crédits...');
+    console.log('📝 Prompt:', imagePrompt.substring(0, 150));
+
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
       .select('usage_image, plan_name')
@@ -67,75 +69,76 @@ export async function POST(request: Request) {
     const currentUsage = subscription?.usage_image || 0;
 
     console.log(`📊 Plan: ${planName}, Limite: ${limit}, Utilisation: ${currentUsage}`);
-    console.log('⏱️ Étape 6: Crédits vérifiés');
 
     if (limit === 0) {
-      return NextResponse.json({ error: 'Fonctionnalité non disponible. Passez au plan Pro ou Business.' }, { status: 402 });
+      return NextResponse.json(
+        { error: 'Fonctionnalité non disponible. Passez au plan Pro ou Business.' },
+        { status: 402 }
+      );
     }
 
     if (currentUsage >= limit) {
-      return NextResponse.json({ error: `Crédits images épuisés (${currentUsage}/${limit})` }, { status: 402 });
+      return NextResponse.json(
+        { error: `Crédits images épuisés (${currentUsage}/${limit})` },
+        { status: 402 }
+      );
     }
 
-    // Génération de l'image
-    console.log('⏱️ Étape 7: Appel à OpenAI...');
-    let imageUrl = '';
-    let usedFallback = false;
+    console.log('🎨 Génération image avec gpt-image-1...');
 
-    try {
-      console.log('🎨 Tentative avec gpt-image-1...');
-      const response = await openai.images.generate({
-        model: 'gpt-image-1',
-        prompt: imagePrompt,
-        n: 1,
-        size: '1024x1024',
+    const response = await openai.images.generate({
+      model: 'gpt-image-1',
+      prompt: imagePrompt,
+      n: 1,
+      size: '1024x1024',
+    });
+
+    const b64 = response.data?.[0]?.b64_json;
+
+    if (!b64) {
+      console.error('❌ Réponse OpenAI sans b64_json:', response.data?.[0]);
+      throw new Error("OpenAI n'a pas retourné d'image exploitable.");
+    }
+
+    console.log('✅ Image reçue en base64');
+
+    const imageBuffer = Buffer.from(b64, 'base64');
+
+    const fileName = `images/${userId}/${postId}-${platform}-${Date.now()}.png`;
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from('generated-images')
+      .upload(fileName, imageBuffer, {
+        contentType: 'image/png',
+        upsert: true,
       });
-      console.log('📦 Réponse OpenAI reçue');
 
-      if (response.data?.[0]?.url) {
-        imageUrl = response.data[0].url;
-        console.log('✅ Image générée avec succès');
-      } else {
-        throw new Error('Pas d\'URL dans la réponse');
-      }
-    } catch (openaiError: any) {
-      console.error('❌ Erreur OpenAI (1er essai):', openaiError.message);
-      
-      try {
-        console.log('🔄 Tentative avec gpt-image-1-mini...');
-        const response = await openai.images.generate({
-          model: 'gpt-image-1-mini',
-          prompt: imagePrompt,
-          n: 1,
-          size: '1024x1024',
-        });
-        
-        if (response.data?.[0]?.url) {
-          imageUrl = response.data[0].url;
-          console.log('✅ Image générée avec gpt-image-1-mini');
-        } else {
-          throw new Error('Pas d\'URL');
-        }
-      } catch (secondError: any) {
-        console.error('❌ Échec second essai:', secondError.message);
-        imageUrl = `https://picsum.photos/seed/${postId}-${platform}-${Date.now()}/1024/1024`;
-        usedFallback = true;
-      }
+    if (uploadError) {
+      console.error('❌ Erreur upload Supabase:', uploadError);
+      throw new Error(uploadError.message);
     }
 
-    console.log('⏱️ Étape 8: Mise à jour des crédits...');
-    if (!usedFallback) {
-      await supabaseAdmin
-        .from('subscriptions')
-        .update({ usage_image: currentUsage + 1 })
-        .eq('user_id', userId);
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from('generated-images')
+      .getPublicUrl(fileName);
+
+    const imageUrl = publicUrlData.publicUrl;
+
+    if (!imageUrl) {
+      throw new Error("Impossible de récupérer l'URL publique de l'image.");
     }
 
-    console.log('⏱️ Étape 9: Sauvegarde de l\'image...');
+    console.log('✅ Image uploadée:', imageUrl);
+
+    await supabaseAdmin
+      .from('subscriptions')
+      .update({ usage_image: currentUsage + 1 })
+      .eq('user_id', userId);
+
     const updateData: Record<string, string> = {
       [`image_url_${platform}`]: imageUrl,
       [`status_image_${platform}`]: 'completed',
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     };
 
     await supabaseAdmin
@@ -144,13 +147,21 @@ export async function POST(request: Request) {
       .eq('id', postId);
 
     const duration = Date.now() - startTime;
-    console.log(`✅ Image sauvegardée pour ${platform} (durée: ${duration}ms)`);
+    console.log(`✅ Image sauvegardée pour ${platform} durée: ${duration}ms`);
 
-    return NextResponse.json({ success: true, imageUrl, fallback: usedFallback });
+    return NextResponse.json({
+      success: true,
+      imageUrl,
+      fallback: false,
+    });
 
   } catch (error: any) {
     const duration = Date.now() - startTime;
     console.error(`❌ Erreur générale après ${duration}ms:`, error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json(
+      { error: error.message || 'Erreur génération image' },
+      { status: 500 }
+    );
   }
 }
