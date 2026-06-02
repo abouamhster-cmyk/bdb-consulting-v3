@@ -48,29 +48,53 @@ export async function POST(request: Request) {
       );
     }
 
+    const { data: companyConfig } = await supabaseAdmin
+      .from('company_config')
+      .select('company_name, graphic_charter, brand_positioning, logo_url')
+      .eq('user_id', userId)
+      .maybeSingle();
+
     const finalScript =
       script ||
       post.video_script ||
       `${post.hook || ''} ${post.title || ''}`;
 
     const cleanPrompt = `
-Créer une courte vidéo marketing professionnelle pour les réseaux sociaux.
+Créer une vidéo marketing professionnelle pour les réseaux sociaux.
 
-Sujet principal :
+ENTREPRISE :
+- Nom : ${companyConfig?.company_name || 'Entreprise'}
+- Positionnement : ${companyConfig?.brand_positioning || 'Premium et professionnel'}
+- Charte graphique : ${companyConfig?.graphic_charter || 'Style moderne, propre et professionnel'}
+- Logo disponible dans l'application : ${companyConfig?.logo_url ? 'oui' : 'non'}
+
+SUJET PRINCIPAL :
 ${post.title}
 
-Script / idée :
+SCRIPT / IDÉE :
 ${finalScript}
 
-Style :
+STYLE VISUEL :
 - vidéo business moderne
 - visuel propre, premium et crédible
 - mouvement fluide
 - lumière professionnelle
-- pas de texte illisible
-- pas de visage réel identifiable
+- qualité cinéma
+- composition claire
+- ambiance professionnelle et inspirante
 - format paysage 1280x720
-- durée courte
+
+RÈGLES STRICTES :
+- Ne jamais inventer de logo.
+- Ne jamais créer de symbole de marque.
+- Ne jamais afficher un faux logo.
+- Ne jamais afficher le logo de l'entreprise.
+- Ne jamais afficher le nom de l'entreprise sous forme de texte dans la vidéo.
+- Ne jamais afficher de texte lisible.
+- Ne jamais afficher d'enseigne, panneau, badge, watermark ou marque fictive.
+- Ne pas générer de visage réel identifiable.
+- Prévoir une zone visuelle propre en bas à droite.
+- Le vrai logo sera ajouté automatiquement par l'application après génération.
 `;
 
     const { data: subscription } = await supabaseAdmin
@@ -110,12 +134,12 @@ Style :
 
     console.log('🚀 Création du job vidéo OpenAI...');
 
-let video = await openai.videos.create({
-  model: 'sora-2',
-  prompt: cleanPrompt,
-  size: '1280x720',
-  seconds: 15,
-});
+    let video = await openai.videos.create({
+      model: 'sora-2',
+      prompt: cleanPrompt,
+      size: '1280x720',
+      seconds: 15,
+    });
 
     console.log('🟡 Job vidéo créé:', video.id, video.status);
 
