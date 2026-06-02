@@ -560,7 +560,7 @@ export default function CampaignVerticalPage() {
       return;
     }
 
-    const response = await fetch('/api/schedule-post', {
+    const response = await fetch('/api/ayrshare/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
