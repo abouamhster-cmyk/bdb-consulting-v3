@@ -967,13 +967,15 @@ export default function CampaignVerticalPage() {
               )}
 
               {currentStep === 3 && (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   {isScheduled ? (
-                    <div className="text-center text-green-600 py-6 bg-green-50 rounded-xl">
+                    <div className="text-center text-green-600 py-6 bg-green-50 rounded-xl border border-green-100">
                       <CheckCircle className="w-6 h-6 mx-auto mb-2" />
-                      <p>Post programmé en interne !</p>
+                      <p className="font-semibold">Post programmé en interne !</p>
                       {currentPost.scheduled_platform && (
-                        <p className="text-xs text-gray-500 mt-1">Plateforme : {currentPost.scheduled_platform}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Plateforme : {currentPost.scheduled_platform}
+                        </p>
                       )}
                       {currentPost.scheduled_at && (
                         <p className="text-xs text-gray-500 mt-1">
@@ -983,62 +985,136 @@ export default function CampaignVerticalPage() {
                     </div>
                   ) : (
                     <>
-                      {!showScheduler ? (
-                        <button onClick={() => setShowScheduler(true)} className="w-full py-3 bg-blue-600 text-white rounded-xl">
-                          Programmer ce post
-                        </button>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="bg-blue-50 rounded-lg p-4">
-                            <p className="text-sm font-medium">
-                              {selectedDate.toLocaleDateString('fr-FR')} à {selectedTime}
-                            </p>
-                          </div>
+                      <div className="bg-gray-50 border rounded-xl p-4">
+                        <p className="text-sm text-gray-500 mb-1">Type de post</p>
+                        <p className="font-semibold text-gray-900">
+                          {currentPost.content_type || 'Post marketing'}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-2">
+                          Choisissez une date, une heure et la plateforme. La programmation est enregistrée dans la base, sans Buffer.
+                        </p>
+                      </div>
 
-                          <div className="grid grid-cols-3 gap-2">
-                            {timeSlots.map(time => (
-                              <button
-                                key={time}
-                                onClick={() => setSelectedTime(time)}
-                                className={`py-2 rounded-lg text-sm ${
-                                  selectedTime === time
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                }`}
-                              >
-                                {time}
-                              </button>
-                            ))}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            {activePlatforms.map(platform => {
-                              const PlatformIcon = platform.icon;
-                              const hasText = currentPost[`text_${platform.id}`];
-
-                              return (
-                                <button
-                                  key={platform.id}
-                                  onClick={() => schedulePost(platform.id)}
-                                  disabled={!hasText || scheduling}
-                                  className={`${platform.color} text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50`}
-                                >
-                                  {scheduling ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlatformIcon className="w-4 h-4" />}
-                                  {platform.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          <button onClick={() => setShowScheduler(false)} className="w-full text-gray-500 text-sm">
-                            Annuler
-                          </button>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-white border rounded-xl p-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Date de publication
+                          </label>
+                          <input
+                            type="date"
+                            value={selectedDate.toISOString().split('T')[0]}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (!value) return;
+                              const nextDate = new Date(value);
+                              if (!Number.isNaN(nextDate.getTime())) {
+                                setSelectedDate(nextDate);
+                              }
+                            }}
+                            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
                         </div>
-                      )}
+
+                        <div className="bg-white border rounded-xl p-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Heure de publication
+                          </label>
+                          <input
+                            type="time"
+                            value={selectedTime}
+                            onChange={(e) => setSelectedTime(e.target.value)}
+                            className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                        <p className="text-sm text-gray-600">Publication prévue</p>
+                        <p className="font-semibold text-gray-900">
+                          {selectedDate.toLocaleDateString('fr-FR')} à {selectedTime}
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        {activePlatforms.map(platform => {
+                          const PlatformIcon = platform.icon;
+                          const text = currentPost[`text_${platform.id}`];
+                          const image = currentPost[`image_url_${platform.id}`];
+                          const hasVideo = Boolean(currentPost.video_url);
+
+                          return (
+                            <div key={platform.id} className="border rounded-xl p-4 bg-white">
+                              <div className="flex justify-between items-center mb-3">
+                                <div className="flex items-center gap-2">
+                                  <PlatformIcon className="w-5 h-5" />
+                                  <span className="font-semibold">{platform.name}</span>
+                                </div>
+                                <span className={`text-xs px-2 py-1 rounded-full ${text ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                                  {text ? 'Texte prêt' : 'Texte manquant'}
+                                </span>
+                              </div>
+
+                              {text ? (
+                                <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg mb-3 line-clamp-4 whitespace-pre-wrap">
+                                  {text}
+                                </p>
+                              ) : (
+                                <p className="text-sm text-red-500 bg-red-50 p-3 rounded-lg mb-3">
+                                  Générez d'abord le texte pour {platform.name} avant de programmer.
+                                </p>
+                              )}
+
+                              <div className="grid grid-cols-2 gap-3 mb-3">
+                                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                  <p className="text-xs text-gray-500 mb-1">Image</p>
+                                  <p className={image ? 'text-green-600 text-sm font-medium' : 'text-red-500 text-sm'}>
+                                    {image ? 'Disponible' : 'Non générée'}
+                                  </p>
+                                </div>
+
+                                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                                  <p className="text-xs text-gray-500 mb-1">Vidéo</p>
+                                  <p className={hasVideo ? 'text-green-600 text-sm font-medium' : 'text-gray-400 text-sm'}>
+                                    {hasVideo ? 'Disponible' : 'Optionnelle'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {image && (
+                                <div className="mb-3 rounded-lg overflow-hidden border bg-gray-100">
+                                  <img
+                                    src={image}
+                                    alt={`Aperçu ${platform.name}`}
+                                    className="w-full max-h-64 object-contain bg-gray-100"
+                                  />
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => schedulePost(platform.id)}
+                                disabled={!text || scheduling}
+                                className={`${platform.color} w-full text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50`}
+                              >
+                                {scheduling ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <PlatformIcon className="w-4 h-4" />
+                                )}
+                                Programmer sur {platform.name}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </>
                   )}
 
-                  <button onClick={() => router.push('/dashboard')} className="w-full bg-green-600 text-white py-3 rounded-xl mt-4">
+                  <button
+                    type="button"
+                    onClick={() => router.push('/dashboard')}
+                    className="w-full bg-green-600 text-white py-3 rounded-xl mt-4"
+                  >
                     Terminer
                   </button>
                 </div>
