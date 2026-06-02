@@ -66,22 +66,21 @@ export async function POST(request: Request) {
       }, { status: 402 });
     }
 
-    // Appel à DALL-E - Uniquement les paramètres essentiels
-    console.log('🤖 Appel à DALL-E...');
+    // Appel à DALL-E 2 (plus stable et disponible sur tous les comptes)
+    console.log('🤖 Appel à DALL-E 2...');
     let imageUrl = '';
 
     try {
       const response = await openai.images.generate({
-        model: 'dall-e-3',
+        model: 'dall-e-2',        // ← Changé de dall-e-3 à dall-e-2
         prompt: imagePrompt,
         n: 1,
         size: '1024x1024',
-        // PAS de quality, PAS de style
       });
 
       if (response.data?.[0]?.url) {
         imageUrl = response.data[0].url;
-        console.log('✅ Image générée avec succès');
+        console.log('✅ Image générée avec succès via DALL-E 2');
       } else {
         throw new Error('Pas d\'URL dans la réponse');
       }
@@ -90,6 +89,7 @@ export async function POST(request: Request) {
       if (openaiError.response?.data) {
         console.error('Détails:', JSON.stringify(openaiError.response.data, null, 2));
       }
+      // Fallback: image placeholder
       imageUrl = `https://picsum.photos/seed/${postId}-${platform}-${Date.now()}/1024/1024`;
       console.log('⚠️ Fallback utilisé');
     }
