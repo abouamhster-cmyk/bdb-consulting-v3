@@ -138,7 +138,7 @@ RÈGLES STRICTES :
       model: 'sora-2',
       prompt: cleanPrompt,
       size: '1280x720',
-      seconds: '15',
+      seconds: '12',
     });
 
     console.log('🟡 Job vidéo créé:', video.id, video.status);
