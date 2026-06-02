@@ -6,6 +6,19 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Définir le type pour les limites
+type PlanLimits = {
+  starter: number;
+  pro: number;
+  business: number;
+};
+
+const planLimits: PlanLimits = {
+  starter: 0,
+  pro: 50,
+  business: 200
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -44,8 +57,8 @@ export async function POST(request: Request) {
       .eq('user_id', userId)
       .maybeSingle();
 
-    const planName = subscription?.plan_name || 'starter';
-    const limit = { starter: 0, pro: 50, business: 200 }[planName] || 0;
+    const planName = (subscription?.plan_name || 'starter') as keyof PlanLimits;
+    const limit = planLimits[planName] || 0;
     const currentUsage = subscription?.usage_image || 0;
 
     if (limit === 0 || currentUsage >= limit) {
@@ -64,7 +77,7 @@ export async function POST(request: Request) {
         prompt: imagePrompt,
         n: 1,
         size: '1024x1024',
-        quality: 'standard', // 'hd' est plus cher, 'standard' suffit
+        quality: 'standard',
       });
 
       if (response.data?.[0]?.url) {
@@ -85,7 +98,7 @@ export async function POST(request: Request) {
       .update({ usage_image: currentUsage + 1 })
       .eq('user_id', userId);
 
-    const updateData: any = {
+    const updateData: Record<string, string> = {
       [`image_url_${platform}`]: imageUrl,
       [`status_image_${platform}`]: 'completed',
       updated_at: new Date().toISOString()
