@@ -6,7 +6,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Type pour les champs dynamiques
 type PostWithTextField = {
   title: string;
   hook: string;
@@ -32,7 +31,6 @@ export async function POST(request: Request) {
 
     console.log(`🎨 Génération prompt image pour ${platform}, post:`, postId);
 
-    // Récupérer les données du post
     const { data: post, error: postError } = await supabaseAdmin
       .from('post_skeleton')
       .select('title, hook, cta, content_type')
@@ -43,27 +41,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Post non trouvé' }, { status: 404 });
     }
 
-    // Récupérer le texte spécifique à la plateforme
     const textField = `text_${platform}`;
+
     const { data: textData } = await supabaseAdmin
       .from('post_skeleton')
       .select(textField)
       .eq('id', postId)
       .single() as { data: PostWithTextField | null };
 
-    // Valeur par défaut si pas de texte trouvé
-    const platformText = (textData && textData[textField]) 
-      ? String(textData[textField]) 
+    const platformText = textData && textData[textField]
+      ? String(textData[textField])
       : `${post.hook} ${post.title}`;
 
-    // Récupérer la config entreprise
     const { data: config } = await supabaseAdmin
       .from('company_config')
-      .select('company_name, graphic_charter, brand_positioning')
+      .select('company_name, graphic_charter, brand_positioning, logo_url')
       .eq('user_id', userId)
       .maybeSingle();
 
-    // Configuration visuelle par plateforme
     const platformVisuals: Record<string, { style: string; vibe: string }> = {
       linkedin: { style: 'Professionnel, corporate, minimaliste', vibe: 'Sérieux et crédible' },
       instagram: { style: 'Coloré, esthétique, storytelling visuel', vibe: 'Inspirant et engageant' },
@@ -73,7 +68,7 @@ export async function POST(request: Request) {
 
     const visual = platformVisuals[platform] || platformVisuals.linkedin;
 
-    const promptText = `Génère un prompt pour DALL-E afin de créer une image pour un post ${platform}.
+    const promptText = `Génère un prompt pour créer une image professionnelle pour un post ${platform}.
 
 CONTEXTE DU POST:
 - Réseau: ${platform}
@@ -84,39 +79,69 @@ CONTEXTE DU POST:
 IDENTITÉ DE LA MARQUE:
 - Entreprise: ${config?.company_name || 'BDB Consulting'}
 - Positionnement: ${config?.brand_positioning || 'Premium et innovant'}
+- Couleurs / charte graphique: ${config?.graphic_charter || 'Bleu et blanc, tons professionnels'}
+- Logo disponible en base: ${config?.logo_url ? 'oui' : 'non'}
 
 STYLE VISUEL ATTENDU:
 - Style: ${visual.style}
 - Vibe: ${visual.vibe}
-- Couleurs: ${config?.graphic_charter || 'Bleu et blanc, tons professionnels'}
+- Image marketing propre, crédible et professionnelle
+- Composition moderne, agréable et adaptée aux réseaux sociaux
+- Format carré 1024x1024
 
-Génère UNIQUEMENT le prompt pour DALL-E, en français, descriptif (100-200 mots).`;
+RÈGLES STRICTES À RESPECTER:
+- Ne jamais afficher de logo dans l'image générée.
+- Ne jamais inventer un logo.
+- Ne jamais dessiner le logo de l'entreprise.
+- Ne jamais créer un faux symbole de marque.
+- Ne jamais mettre le nom de l'entreprise sous forme de texte dans l'image.
+- Ne jamais afficher de texte lisible.
+- Laisser volontairement un espace propre en bas à droite pour que l'application ajoute ensuite le vrai logo depuis la base de données.
+- L'image doit être utilisable même sans texte intégré.
+
+Génère UNIQUEMENT le prompt final pour l'image, en français, descriptif, entre 100 et 200 mots.`;
 
     let imagePrompt = '';
 
     if (!process.env.OPENAI_API_KEY) {
-      imagePrompt = `Image pour post ${platform}: ${post.title}. Style ${visual.style}. Ambiance ${visual.vibe}. Format carré.`;
+      imagePrompt = `Image professionnelle pour post ${platform}: ${post.title}. Style ${visual.style}. Ambiance ${visual.vibe}. Couleurs: ${config?.graphic_charter || 'bleu et blanc professionnel'}. Ne pas afficher de logo, ne pas afficher de texte lisible, laisser un espace propre en bas à droite pour ajouter le vrai logo ensuite. Format carré 1024x1024.`;
       console.log('⚠️ Mode fallback - prompt générique');
     } else {
       console.log('🤖 Appel OpenAI pour générer le prompt...');
+
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: "Tu es un expert en création de prompts pour DALL-E. Génère un prompt détaillé en français." },
+          {
+            role: 'system',
+            content: `Tu es un expert en création de prompts pour images marketing.
+Tu dois générer uniquement le prompt final.
+Tu dois absolument interdire la génération de logo, de faux logo, de texte lisible ou de nom d'entreprise dans l'image.`
+          },
           { role: 'user', content: promptText }
         ],
-        temperature: 0.8,
-        max_tokens: 300,
+        temperature: 0.7,
+        max_tokens: 350,
       });
+
       imagePrompt = completion.choices[0].message.content || `Image pour post ${platform}: ${post.title}`;
       console.log('✅ Prompt généré');
     }
 
-    // Sauvegarder le prompt spécifique à la plateforme
+    imagePrompt = `${imagePrompt}
+
+RÈGLES FINALES OBLIGATOIRES:
+Ne pas afficher de logo.
+Ne pas inventer de logo.
+Ne pas afficher de texte lisible.
+Ne pas écrire le nom de l'entreprise dans l'image.
+Laisser un espace propre en bas à droite pour ajouter le vrai logo ensuite.`;
+
     const imagePromptField = `image_prompt_${platform}`;
+
     await supabaseAdmin
       .from('post_skeleton')
-      .update({ 
+      .update({
         [imagePromptField]: imagePrompt,
         updated_at: new Date().toISOString()
       })
@@ -126,6 +151,9 @@ Génère UNIQUEMENT le prompt pour DALL-E, en français, descriptif (100-200 mot
 
   } catch (error: any) {
     console.error('❌ Erreur:', error);
-    return NextResponse.json({ error: error.message || 'Erreur lors de la génération' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Erreur lors de la génération' },
+      { status: 500 }
+    );
   }
 }
