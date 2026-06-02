@@ -7,6 +7,8 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const IMAGE_BUCKET = 'generated-images';
+
 const getPlanLimit = (planName: string): number => {
   switch (planName) {
     case 'pro':
@@ -54,10 +56,20 @@ export async function POST(request: Request) {
     let imagePrompt = post[promptField];
 
     if (!imagePrompt) {
-      imagePrompt = `Professional image for: ${post.title}. Modern, clean, professional style. Square format 1024x1024.`;
+      imagePrompt = `Professional marketing image for: ${post.title}. Modern, clean, professional style. Square format 1024x1024. No logo. No readable text. Leave clean empty space in the bottom-right corner for the real company logo to be added later.`;
     }
 
-    console.log('📝 Prompt:', imagePrompt.substring(0, 150));
+    imagePrompt = `${imagePrompt}
+
+RÈGLES STRICTES:
+- Ne jamais afficher de logo.
+- Ne jamais inventer de logo.
+- Ne jamais dessiner une marque fictive.
+- Ne jamais afficher de texte lisible.
+- Laisser un espace propre en bas à droite pour ajouter le vrai logo ensuite.
+`;
+
+    console.log('📝 Prompt:', imagePrompt.substring(0, 200));
 
     const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
@@ -104,12 +116,60 @@ export async function POST(request: Request) {
     console.log('✅ Image reçue en base64');
 
     const imageBuffer = Buffer.from(b64, 'base64');
+    let finalImageBuffer = imageBuffer;
+
+    // Récupérer le vrai logo de l'entreprise depuis la base
+    const { data: config } = await supabaseAdmin
+      .from('company_config')
+      .select('logo_url')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (config?.logo_url) {
+      try {
+        console.log('🏷️ Logo trouvé, ajout sur l’image...');
+
+        const logoResponse = await fetch(config.logo_url);
+
+        if (!logoResponse.ok) {
+          throw new Error(`Impossible de télécharger le logo: ${logoResponse.status}`);
+        }
+
+        const logoArrayBuffer = await logoResponse.arrayBuffer();
+        const logoBuffer = Buffer.from(logoArrayBuffer);
+
+        const resizedLogo = await sharp(logoBuffer)
+          .resize({
+            width: 160,
+            withoutEnlargement: true,
+          })
+          .png()
+          .toBuffer();
+
+        finalImageBuffer = await sharp(imageBuffer)
+          .composite([
+            {
+              input: resizedLogo,
+              gravity: 'southeast',
+              blend: 'over',
+            },
+          ])
+          .png()
+          .toBuffer();
+
+        console.log('✅ Vrai logo ajouté sur l’image');
+      } catch (logoError) {
+        console.error('⚠️ Impossible d’ajouter le logo, image sauvegardée sans logo:', logoError);
+      }
+    } else {
+      console.log('ℹ️ Aucun logo_url trouvé dans company_config, image sans logo');
+    }
 
     const fileName = `images/${userId}/${postId}-${platform}-${Date.now()}.png`;
 
     const { error: uploadError } = await supabaseAdmin.storage
-      .from('generated-images')
-      .upload(fileName, imageBuffer, {
+      .from(IMAGE_BUCKET)
+      .upload(fileName, finalImageBuffer, {
         contentType: 'image/png',
         upsert: true,
       });
@@ -120,7 +180,7 @@ export async function POST(request: Request) {
     }
 
     const { data: publicUrlData } = supabaseAdmin.storage
-      .from('generated-images')
+      .from(IMAGE_BUCKET)
       .getPublicUrl(fileName);
 
     const imageUrl = publicUrlData.publicUrl;
