@@ -6,13 +6,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Type pour les champs dynamiques
-type PostWithImageData = {
-  id: string;
-  title: string;
-  [key: string]: any;
-};
-
 export async function POST(request: Request) {
   console.log('🖼️ API generate-image-by-platform appelée');
 
@@ -59,29 +52,45 @@ export async function POST(request: Request) {
     console.log('✅ Post trouvé:', post.title);
 
     // Récupération du prompt spécifique à la plateforme
-    const promptField = `image_prompt_${platform}`;
-    const { data: promptData } = await supabaseAdmin
+    const { data: postData } = await supabaseAdmin
       .from('post_skeleton')
-      .select(promptField)
+      .select('image_prompt_linkedin, image_prompt_instagram, image_prompt_facebook, image_prompt_twitter')
       .eq('id', postId)
       .single();
 
-    let imagePrompt = (promptData && promptData[promptField]) 
-      ? String(promptData[promptField]) 
-      : `Image professionnelle pour post ${platform} intitulé: ${post.title}. Style moderne et épuré, adapté aux réseaux sociaux.`;
+    let imagePrompt = '';
+    
+    // Récupérer le prompt correspondant à la plateforme
+    switch (platform) {
+      case 'linkedin':
+        imagePrompt = postData?.image_prompt_linkedin || '';
+        break;
+      case 'instagram':
+        imagePrompt = postData?.image_prompt_instagram || '';
+        break;
+      case 'facebook':
+        imagePrompt = postData?.image_prompt_facebook || '';
+        break;
+      case 'twitter':
+        imagePrompt = postData?.image_prompt_twitter || '';
+        break;
+      default:
+        imagePrompt = '';
+    }
+
+    // Si pas de prompt personnalisé, utiliser un prompt par défaut
+    if (!imagePrompt) {
+      imagePrompt = `Image professionnelle pour post ${platform} intitulé: ${post.title}. Style moderne et épuré, adapté aux réseaux sociaux. Format carré 1024x1024. Qualité HD.`;
+    }
 
     console.log('🎨 Prompt utilisé:', imagePrompt.substring(0, 100) + '...');
 
     // Vérification des crédits
-    const { data: subscription, error: subError } = await supabaseAdmin
+    const { data: subscription } = await supabaseAdmin
       .from('subscriptions')
       .select('usage_image, plan_name')
       .eq('user_id', userId)
       .maybeSingle();
-
-    if (subError) {
-      console.error('❌ Erreur récupération abonnement:', subError);
-    }
 
     const planLimits: Record<string, number> = { 
       starter: 0, 
@@ -145,35 +154,23 @@ export async function POST(request: Request) {
     }
 
     // Incrémentation du compteur d'utilisation
-    const { error: updateUsageError } = await supabaseAdmin
+    await supabaseAdmin
       .from('subscriptions')
       .update({ usage_image: currentUsage + 1 })
       .eq('user_id', userId);
 
-    if (updateUsageError) {
-      console.error('❌ Erreur mise à jour compteur:', updateUsageError);
-    }
-
     // Sauvegarde de l'URL dans le post
-    const imageUrlField = `image_url_${platform}`;
-    const statusField = `status_image_${platform}`;
+    const updateData: Record<string, any> = {
+      updated_at: new Date().toISOString()
+    };
     
-    const { error: updatePostError } = await supabaseAdmin
-      .from('post_skeleton')
-      .update({ 
-        [imageUrlField]: imageUrl,
-        [statusField]: 'completed',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', postId);
+    updateData[`image_url_${platform}`] = imageUrl;
+    updateData[`status_image_${platform}`] = 'completed';
 
-    if (updatePostError) {
-      console.error('❌ Erreur mise à jour post:', updatePostError);
-      return NextResponse.json(
-        { error: 'Erreur lors de la sauvegarde de l\'image' },
-        { status: 500 }
-      );
-    }
+    await supabaseAdmin
+      .from('post_skeleton')
+      .update(updateData)
+      .eq('id', postId);
 
     console.log(`✅ Image sauvegardée pour ${platform}`);
 
