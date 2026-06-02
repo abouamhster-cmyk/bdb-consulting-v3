@@ -6,7 +6,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Définir le type pour les limites
 type PlanLimits = {
   starter: number;
   pro: number;
@@ -30,7 +29,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Données manquantes' }, { status: 400 });
     }
 
-    // Récupérer le post et son prompt
+    // Récupérer le post
     const { data: post } = await supabaseAdmin
       .from('post_skeleton')
       .select('*')
@@ -41,12 +40,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Post non trouvé' }, { status: 404 });
     }
 
-    // Récupérer le prompt spécifique à la plateforme
+    // Récupérer le prompt
     const promptField = `image_prompt_${platform}`;
     let imagePrompt = post[promptField];
 
     if (!imagePrompt) {
-      imagePrompt = `Image professionnelle pour illustrer ce post: ${post.title}. Style moderne, épuré, professionnel. Format carré 1024x1024.`;
+      imagePrompt = `Image professionnelle pour illustrer ce post: ${post.title}. Style moderne, épuré, professionnel. Format carré.`;
       console.log('⚠️ Utilisation du prompt par défaut');
     }
 
@@ -67,7 +66,7 @@ export async function POST(request: Request) {
       }, { status: 402 });
     }
 
-    // Appel à DALL-E - SANS le paramètre 'style'
+    // Appel à DALL-E - Uniquement les paramètres essentiels
     console.log('🤖 Appel à DALL-E...');
     let imageUrl = '';
 
@@ -77,7 +76,7 @@ export async function POST(request: Request) {
         prompt: imagePrompt,
         n: 1,
         size: '1024x1024',
-        quality: 'standard',
+        // PAS de quality, PAS de style
       });
 
       if (response.data?.[0]?.url) {
@@ -88,16 +87,20 @@ export async function POST(request: Request) {
       }
     } catch (openaiError: any) {
       console.error('❌ Erreur OpenAI:', openaiError.message);
+      if (openaiError.response?.data) {
+        console.error('Détails:', JSON.stringify(openaiError.response.data, null, 2));
+      }
       imageUrl = `https://picsum.photos/seed/${postId}-${platform}-${Date.now()}/1024/1024`;
       console.log('⚠️ Fallback utilisé');
     }
 
-    // Mettre à jour la base
+    // Mettre à jour les crédits
     await supabaseAdmin
       .from('subscriptions')
       .update({ usage_image: currentUsage + 1 })
       .eq('user_id', userId);
 
+    // Sauvegarder l'image
     const updateData: Record<string, string> = {
       [`image_url_${platform}`]: imageUrl,
       [`status_image_${platform}`]: 'completed',
@@ -108,6 +111,8 @@ export async function POST(request: Request) {
       .from('post_skeleton')
       .update(updateData)
       .eq('id', postId);
+
+    console.log(`✅ Image sauvegardée pour ${platform}`);
 
     return NextResponse.json({ success: true, imageUrl });
 
