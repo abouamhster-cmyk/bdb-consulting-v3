@@ -1,19 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import ChatAssistant from '@/components/ChatAssistant';
 import { supabase } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
-  Sparkles, ArrowLeft, CheckCircle, MessageSquare, Image, Video, 
-  CalendarCheck, Target, Tag, LayoutGrid, Loader2, Edit2, Save, X,
-  Eye, EyeOff, Zap, TrendingUp, Clock, Wand2, Calendar as CalendarIcon,
-  MessageCircle, RefreshCw, ChevronLeft, ChevronRight
+  Sparkles, CheckCircle, MessageSquare, Image, Video, 
+  CalendarCheck, LayoutGrid, Loader2, Edit2, Save, X,
+  MessageCircle, Calendar as CalendarIcon
 } from 'lucide-react';
 import { FaLinkedin, FaInstagram, FaFacebook, FaTwitter } from 'react-icons/fa';
 import toast from 'react-hot-toast';
-import Calendar from 'react-calendar';
-import 'react-calendar/dist/Calendar.css';
 
 interface Post {
   id: string;
@@ -52,7 +49,6 @@ interface Platform {
   name: string;
   icon: any;
   color: string;
-  hoverColor: string;
 }
 
 export default function CampaignVerticalPage() {
@@ -76,7 +72,6 @@ export default function CampaignVerticalPage() {
   const [showScheduler, setShowScheduler] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedTime, setSelectedTime] = useState('10:00');
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [promptsReady, setPromptsReady] = useState(false);
   const [scriptsReady, setScriptsReady] = useState(false);
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
@@ -98,20 +93,19 @@ export default function CampaignVerticalPage() {
   const timeSlots = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
 
   const allPlatforms: Platform[] = [
-    { id: 'linkedin', name: 'LinkedIn', icon: FaLinkedin, color: 'bg-[#0077b5]', hoverColor: 'hover:bg-[#0077b5]/90' },
-    { id: 'instagram', name: 'Instagram', icon: FaInstagram, color: 'bg-[#e4405f]', hoverColor: 'hover:bg-[#e4405f]/90' },
-    { id: 'facebook', name: 'Facebook', icon: FaFacebook, color: 'bg-[#1877f2]', hoverColor: 'hover:bg-[#1877f2]/90' },
-    { id: 'twitter', name: 'Twitter', icon: FaTwitter, color: 'bg-[#1da1f2]', hoverColor: 'hover:bg-[#1da1f2]/90' }
+    { id: 'linkedin', name: 'LinkedIn', icon: FaLinkedin, color: 'bg-[#0077b5]' },
+    { id: 'instagram', name: 'Instagram', icon: FaInstagram, color: 'bg-[#e4405f]' },
+    { id: 'facebook', name: 'Facebook', icon: FaFacebook, color: 'bg-[#1877f2]' },
+    { id: 'twitter', name: 'Twitter', icon: FaTwitter, color: 'bg-[#1da1f2]' }
   ];
 
   const steps = [
-    { name: 'Textes', key: 'text', icon: MessageSquare, description: 'Générez et personnalisez vos textes' },
-    { name: 'Images', key: 'image', icon: Image, description: 'Créez une image par plateforme' },
-    { name: 'Vidéo', key: 'video', icon: Video, description: 'Générez une vidéo courte' },
-    { name: 'Programmation', key: 'schedule', icon: CalendarCheck, description: 'Programmez sur les réseaux sociaux' }
+    { name: 'Textes', key: 'text', icon: MessageSquare },
+    { name: 'Images', key: 'image', icon: Image },
+    { name: 'Vidéo', key: 'video', icon: Video },
+    { name: 'Programmation', key: 'schedule', icon: CalendarCheck }
   ];
 
-  // Déclaration de currentPost APRES les states
   const currentPost = posts.find(p => p.id === selectedPostId);
 
   useEffect(() => {
@@ -125,13 +119,12 @@ export default function CampaignVerticalPage() {
     }
   }, [shouldAutoGenerate, posts]);
 
-  // Pas de useEffect automatique pour les images et vidéos - génération manuelle quand on clique sur l'onglet
-
   const loadData = async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setLoading(false);
+      router.push('/auth');
       return;
     }
     
@@ -173,28 +166,6 @@ export default function CampaignVerticalPage() {
     return !error;
   };
 
-  const generateImagePrompt = async (postId: string, platform: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    try {
-      const response = await fetch('/api/generate-image-prompt-by-platform', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId, platform, userId: user?.id })
-      });
-      const result = await response.json();
-      if (result.success) {
-        // Mettre à jour localement sans reload complet
-        setPosts(prev => prev.map(p => 
-          p.id === postId ? { ...p, [`image_prompt_${platform}`]: result.imagePrompt } : p
-        ));
-        return true;
-      }
-    } catch (error) {
-      console.error('Erreur génération prompt image:', error);
-    }
-    return false;
-  };
-
   const generateAllImagePrompts = async () => {
     if (isGeneratingPrompts) return;
     setIsGeneratingPrompts(true);
@@ -202,9 +173,8 @@ export default function CampaignVerticalPage() {
     setGenerationStatus('🎨 Génération des prompts images...');
     
     const { data: { user } } = await supabase.auth.getUser();
-    const postsToProcess = [...posts];
     
-    for (const post of postsToProcess) {
+    for (const post of posts) {
       for (const platform of activePlatforms) {
         const promptField = `image_prompt_${platform.id}`;
         if (!post[promptField]) {
@@ -232,27 +202,6 @@ export default function CampaignVerticalPage() {
     setIsGeneratingPrompts(false);
   };
 
-  const generateVideoScript = async (postId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    try {
-      const response = await fetch('/api/generate-video-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId, userId: user?.id })
-      });
-      const result = await response.json();
-      if (result.success) {
-        setPosts(prev => prev.map(p => 
-          p.id === postId ? { ...p, video_script: result.script } : p
-        ));
-        return true;
-      }
-    } catch (error) {
-      console.error('Erreur génération script vidéo:', error);
-    }
-    return false;
-  };
-
   const generateAllVideoScripts = async () => {
     if (isGeneratingScripts) return;
     setIsGeneratingScripts(true);
@@ -260,9 +209,8 @@ export default function CampaignVerticalPage() {
     setGenerationStatus('🎬 Génération des scripts vidéo...');
     
     const { data: { user } } = await supabase.auth.getUser();
-    const postsToProcess = [...posts];
     
-    for (const post of postsToProcess) {
+    for (const post of posts) {
       if (!post.video_script) {
         try {
           const response = await fetch('/api/generate-video-script', {
@@ -345,15 +293,16 @@ export default function CampaignVerticalPage() {
     setGeneratingTextMap(prev => ({ ...prev, [`${postId}_${platform}`]: true }));
     
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('Vous devez être connecté');
+      setGeneratingTextMap(prev => ({ ...prev, [`${postId}_${platform}`]: false }));
+      return;
+    }
     
     const response = await fetch('/api/generate-text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        postId,
-        platform,
-        userId: user?.id
-      })
+      body: JSON.stringify({ postId, platform, userId: user.id })
     });
     
     const result = await response.json();
@@ -364,7 +313,7 @@ export default function CampaignVerticalPage() {
       ));
       toast.success(`Texte généré pour ${platform}`);
     } else {
-      toast.error('Erreur de génération');
+      toast.error(result.error || 'Erreur de génération');
     }
     
     setGeneratingTextMap(prev => ({ ...prev, [`${postId}_${platform}`]: false }));
@@ -376,15 +325,16 @@ export default function CampaignVerticalPage() {
     setGeneratingImageMap(prev => ({ ...prev, [`${postId}_${platform}`]: true }));
     
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('Vous devez être connecté');
+      setGeneratingImageMap(prev => ({ ...prev, [`${postId}_${platform}`]: false }));
+      return;
+    }
     
     const response = await fetch('/api/generate-image-by-platform', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        postId,
-        platform,
-        userId: user?.id
-      })
+      body: JSON.stringify({ postId, platform, userId: user.id })
     });
     
     const result = await response.json();
@@ -404,14 +354,20 @@ export default function CampaignVerticalPage() {
   const generateVideo = async () => {
     if (!currentPost) return;
     setGeneratingVideo(true);
+    
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('Vous devez être connecté');
+      setGeneratingVideo(false);
+      return;
+    }
     
     const response = await fetch('/api/generate-video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         postId: currentPost.id,
-        userId: user?.id,
+        userId: user.id,
         script: currentPost.video_script
       })
     });
@@ -420,11 +376,11 @@ export default function CampaignVerticalPage() {
     
     if (result.success) {
       setPosts(prev => prev.map(p => 
-        p.id === currentPost.id ? { ...p, video_url: result.videoUrl, video_script: result.script, status_video: 'completed' } : p
+        p.id === currentPost.id ? { ...p, video_url: result.videoUrl, status_video: 'completed' } : p
       ));
       toast.success('Vidéo générée');
     } else {
-      toast.error('Erreur génération vidéo');
+      toast.error(result.error || 'Erreur génération vidéo');
     }
     
     setGeneratingVideo(false);
@@ -478,10 +434,6 @@ export default function CampaignVerticalPage() {
 
   const schedulePost = async (platform: string) => {
     if (!currentPost) return;
-    if (!selectedDate) {
-      toast.error('Veuillez choisir une date');
-      return;
-    }
     
     setScheduling(true);
     
@@ -490,6 +442,11 @@ export default function CampaignVerticalPage() {
     dateTime.setHours(parseInt(hours), parseInt(minutes), 0);
     
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('Vous devez être connecté');
+      setScheduling(false);
+      return;
+    }
     
     const response = await fetch('/api/buffer/post', {
       method: 'POST',
@@ -497,7 +454,7 @@ export default function CampaignVerticalPage() {
       body: JSON.stringify({
         postId: currentPost.id,
         platform: platform,
-        userId: user?.id,
+        userId: user.id,
         scheduledDate: dateTime.toISOString()
       })
     });
@@ -518,7 +475,6 @@ export default function CampaignVerticalPage() {
     setScheduling(false);
   };
 
-  // Fonction pour ouvrir le chat avec le bon contexte
   const openChat = (type: 'text' | 'image' | 'video', platform?: string) => {
     if (!currentPost) return;
     
@@ -526,7 +482,6 @@ export default function CampaignVerticalPage() {
     setChatPlatform(platform || '');
     setChatPostId(currentPost.id);
     
-    // Récupérer le contenu actuel en fonction du type
     if (type === 'text' && platform) {
       setChatCurrentContent(currentPost[`text_${platform}`] || '');
     } else if (type === 'image' && platform) {
@@ -538,36 +493,26 @@ export default function CampaignVerticalPage() {
     setShowChat(true);
   };
 
-  // Fonction pour mettre à jour le contenu après modification par l'IA
   const updateContentFromChat = async (newContent: string) => {
     if (!currentPost || !chatType) return;
     
     if (chatType === 'text' && chatPlatform) {
-      await updatePost(currentPost.id, {
-        [`text_${chatPlatform}`]: newContent
-      });
-      toast.success('Texte mis à jour par l\'IA');
+      await updatePost(currentPost.id, { [`text_${chatPlatform}`]: newContent });
+      toast.success('Texte mis à jour');
     } else if (chatType === 'image' && chatPlatform) {
-      await updatePost(currentPost.id, {
-        [`image_prompt_${chatPlatform}`]: newContent
-      });
-      toast.success('Prompt image mis à jour par l\'IA');
+      await updatePost(currentPost.id, { [`image_prompt_${chatPlatform}`]: newContent });
+      toast.success('Prompt image mis à jour');
     } else if (chatType === 'video') {
-      await updatePost(currentPost.id, {
-        video_script: newContent
-      });
-      toast.success('Script vidéo mis à jour par l\'IA');
+      await updatePost(currentPost.id, { video_script: newContent });
+      toast.success('Script vidéo mis à jour');
     }
   };
 
-  // Fonction pour gérer le clic sur un onglet avec génération automatique
   const handleStepChange = (idx: number) => {
     setCurrentStep(idx);
-    // Générer les prompts quand on arrive sur l'étape images
     if (idx === 1 && !promptsReady && !isGeneratingPrompts && !generating) {
       generateAllImagePrompts();
     }
-    // Générer les scripts quand on arrive sur l'étape vidéo
     if (idx === 2 && !scriptsReady && !isGeneratingScripts && !generating) {
       generateAllVideoScripts();
     }
@@ -632,7 +577,7 @@ export default function CampaignVerticalPage() {
             <Sparkles className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Workflow de création</h1>
-          <p className="text-gray-500 mt-2">{generating ? 'Génération en cours...' : 'Générez vos contenus post par post'}</p>
+          <p className="text-gray-500 mt-2">Générez vos contenus post par post</p>
         </div>
 
         {generating && <ProgressBar />}
@@ -672,7 +617,7 @@ export default function CampaignVerticalPage() {
               </div>
             </div>
 
-            {/* Steps - avec gestionnaire personnalisé */}
+            {/* Steps */}
             <div className="flex border-b">
               {steps.map((step, idx) => {
                 const StepIcon = step.icon;
@@ -710,12 +655,8 @@ export default function CampaignVerticalPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             {text && (
-                              <button
-                                onClick={() => openChat('text', platform.id)}
-                                className="text-purple-600 text-xs flex items-center gap-1"
-                              >
-                                <MessageCircle className="w-3 h-3" />
-                                IA
+                              <button onClick={() => openChat('text', platform.id)} className="text-purple-600 text-xs">
+                                <MessageCircle className="w-3 h-3 inline" /> IA
                               </button>
                             )}
                             {!text && !isGenerating && !generating && (
@@ -732,11 +673,11 @@ export default function CampaignVerticalPage() {
                               <textarea
                                 value={editingText.content}
                                 onChange={(e) => setEditingText({ ...editingText, content: e.target.value })}
-                                className="w-full text-gray-700 text-sm bg-gray-50 p-3 rounded-lg border"
+                                className="w-full text-sm bg-gray-50 p-3 rounded-lg border"
                                 rows={6}
                               />
                               <div className="flex gap-2 mt-2">
-                                <button onClick={saveTextEdit} className="text-green-600 text-sm">💾 Sauvegarder</button>
+                                <button onClick={saveTextEdit} className="text-green-600 text-sm">Sauvegarder</button>
                                 <button onClick={() => setEditingText(null)} className="text-gray-500 text-sm">Annuler</button>
                               </div>
                             </div>
@@ -744,8 +685,8 @@ export default function CampaignVerticalPage() {
                             <div>
                               <p className="text-gray-700 text-sm bg-gray-50 p-3 rounded whitespace-pre-wrap">{text}</p>
                               <div className="flex gap-2 mt-2">
-                                <button onClick={() => generateText(platform.id)} className="text-amber-600 text-sm">🔄 Regénérer</button>
-                                <button onClick={() => setEditingText({ postId: currentPost.id, platform: platform.id, content: text })} className="text-blue-600 text-sm">✏️ Modifier</button>
+                                <button onClick={() => generateText(platform.id)} className="text-amber-600 text-sm">Regénérer</button>
+                                <button onClick={() => setEditingText({ postId: currentPost.id, platform: platform.id, content: text })} className="text-blue-600 text-sm">Modifier</button>
                               </div>
                             </div>
                           )
@@ -759,7 +700,7 @@ export default function CampaignVerticalPage() {
                 </div>
               )}
 
-              {/* ÉTAPE 1: IMAGES PAR PLATEFORME */}
+              {/* ÉTAPE 1: IMAGES */}
               {currentStep === 1 && (
                 <div className="space-y-4">
                   {isGeneratingPrompts && (
@@ -785,12 +726,8 @@ export default function CampaignVerticalPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             {imagePrompt && (
-                              <button
-                                onClick={() => openChat('image', platform.id)}
-                                className="text-purple-600 text-xs flex items-center gap-1"
-                              >
-                                <MessageCircle className="w-3 h-3" />
-                                IA
+                              <button onClick={() => openChat('image', platform.id)} className="text-purple-600 text-xs">
+                                <MessageCircle className="w-3 h-3 inline" /> IA
                               </button>
                             )}
                             {!hasImage && !isGenerating && !generating && !isGeneratingPrompts && (
@@ -803,11 +740,8 @@ export default function CampaignVerticalPage() {
                           </div>
                         </div>
 
-                        {/* Prompt modifiable */}
                         <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-xs text-gray-500">Prompt</span>
-                          </div>
+                          <div className="text-xs text-gray-500 mb-1">Prompt</div>
                           {editingPrompt?.postId === currentPost.id && editingPrompt?.platform === platform.id ? (
                             <div>
                               <textarea
@@ -823,25 +757,20 @@ export default function CampaignVerticalPage() {
                             </div>
                           ) : (
                             <div>
-                              <p className="text-sm text-gray-600">{imagePrompt || (isGeneratingPrompts ? 'Génération en cours...' : 'Prompt non généré')}</p>
+                              <p className="text-sm text-gray-600">{imagePrompt || (isGeneratingPrompts ? 'Génération...' : 'Non généré')}</p>
                               {imagePrompt && (
                                 <button onClick={() => setEditingPrompt({ postId: currentPost.id, platform: platform.id, prompt: imagePrompt })} className="text-blue-600 text-xs mt-1">
-                                  Modifier le prompt
+                                  Modifier
                                 </button>
                               )}
                             </div>
                           )}
                         </div>
 
-                        {/* Image générée */}
                         {imageUrl ? (
                           <div>
                             <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-gray-100">
-                              <img 
-                                src={imageUrl} 
-                                alt={`${platform.name} - ${currentPost.title}`} 
-                                className="w-full h-full object-cover"
-                              />
+                              <img src={imageUrl} alt={`${platform.name} - ${currentPost.title}`} className="w-full h-full object-cover" />
                             </div>
                             <div className="flex gap-2 mt-2">
                               <button onClick={() => generateImage(platform.id)} className="text-amber-600 text-sm">Regénérer</button>
@@ -876,12 +805,8 @@ export default function CampaignVerticalPage() {
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-medium">Script vidéo</span>
                       {currentPost.video_script && (
-                        <button
-                          onClick={() => openChat('video')}
-                          className="text-purple-600 text-xs flex items-center gap-1"
-                        >
-                          <MessageCircle className="w-3 h-3" />
-                          IA
+                        <button onClick={() => openChat('video')} className="text-purple-600 text-xs">
+                          <MessageCircle className="w-3 h-3 inline" /> IA
                         </button>
                       )}
                     </div>
@@ -899,7 +824,7 @@ export default function CampaignVerticalPage() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-gray-600 text-sm">{currentPost.video_script || (isGeneratingScripts ? 'Génération en cours...' : 'Script non généré')}</p>
+                      <p className="text-gray-600 text-sm">{currentPost.video_script || (isGeneratingScripts ? 'Génération...' : 'Non généré')}</p>
                     )}
                   </div>
 
@@ -930,9 +855,7 @@ export default function CampaignVerticalPage() {
                       <CheckCircle className="w-6 h-6 mx-auto mb-2" />
                       <p>Post programmé !</p>
                       {currentPost.scheduled_at && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Le {new Date(currentPost.scheduled_at).toLocaleString()}
-                        </p>
+                        <p className="text-xs text-gray-500 mt-1">Le {new Date(currentPost.scheduled_at).toLocaleString()}</p>
                       )}
                     </div>
                   ) : (
@@ -944,9 +867,7 @@ export default function CampaignVerticalPage() {
                       ) : (
                         <div className="space-y-4">
                           <div className="bg-blue-50 rounded-lg p-4">
-                            <p className="text-sm font-medium">
-                              {selectedDate.toLocaleDateString('fr-FR')} à {selectedTime}
-                            </p>
+                            <p className="text-sm font-medium">{selectedDate.toLocaleDateString('fr-FR')} à {selectedTime}</p>
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             {activePlatforms.map(platform => {
@@ -965,9 +886,7 @@ export default function CampaignVerticalPage() {
                               );
                             })}
                           </div>
-                          <button onClick={() => setShowScheduler(false)} className="w-full text-gray-500 text-sm">
-                            Annuler
-                          </button>
+                          <button onClick={() => setShowScheduler(false)} className="w-full text-gray-500 text-sm">Annuler</button>
                         </div>
                       )}
                     </>
