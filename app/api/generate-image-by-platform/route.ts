@@ -6,6 +6,18 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Définir les limites par plan
+const getPlanLimit = (planName: string): number => {
+  switch (planName) {
+    case 'pro':
+      return 50;
+    case 'business':
+      return 200;
+    default:
+      return 0;
+  }
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -34,6 +46,7 @@ export async function POST(request: Request) {
 
     if (!imagePrompt) {
       imagePrompt = `Professional image for: ${post.title}. Modern, clean, professional style. Square format 1024x1024.`;
+      console.log('⚠️ Utilisation du prompt par défaut');
     }
 
     // Vérifier les crédits
@@ -44,8 +57,10 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     const planName = subscription?.plan_name || 'starter';
-    const limit = { starter: 0, pro: 50, business: 200 }[planName] || 0;
+    const limit = getPlanLimit(planName);
     const currentUsage = subscription?.usage_image || 0;
+
+    console.log(`📊 Plan: ${planName}, Utilisation: ${currentUsage}/${limit}`);
 
     if (limit === 0) {
       return NextResponse.json({ 
@@ -55,7 +70,7 @@ export async function POST(request: Request) {
 
     if (currentUsage >= limit) {
       return NextResponse.json({ 
-        error: `Crédits images épuisés (${currentUsage}/${limit})` 
+        error: `Crédits images épuisés (${currentUsage}/${limit}). Passez au plan supérieur.` 
       }, { status: 402 });
     }
 
@@ -66,7 +81,7 @@ export async function POST(request: Request) {
       console.log('🎨 Génération avec gpt-image-1...');
       
       const response = await openai.images.generate({
-        model: 'gpt-image-1',  // ← Changement ici
+        model: 'gpt-image-1',
         prompt: imagePrompt,
         n: 1,
         size: '1024x1024',
@@ -81,7 +96,7 @@ export async function POST(request: Request) {
     } catch (openaiError: any) {
       console.error('❌ Erreur OpenAI:', openaiError.message);
       
-      // Essayer avec un autre modèle si le premier échoue
+      // Tentative avec gpt-image-1-mini
       try {
         console.log('🔄 Tentative avec gpt-image-1-mini...');
         const response = await openai.images.generate({
@@ -98,19 +113,21 @@ export async function POST(request: Request) {
           throw new Error('Pas d\'URL');
         }
       } catch (secondError: any) {
-        console.error('❌ Échec aussi avec gpt-image-1-mini');
+        console.error('❌ Échec des deux modèles, utilisation fallback');
         imageUrl = `https://picsum.photos/seed/${postId}-${platform}-${Date.now()}/1024/1024`;
         usedFallback = true;
       }
     }
 
-    // Incrémenter le compteur
-    await supabaseAdmin
-      .from('subscriptions')
-      .update({ usage_image: currentUsage + 1 })
-      .eq('user_id', userId);
+    // Incrémenter le compteur seulement si DALL-E a fonctionné
+    if (!usedFallback) {
+      await supabaseAdmin
+        .from('subscriptions')
+        .update({ usage_image: currentUsage + 1 })
+        .eq('user_id', userId);
+    }
 
-    // Sauvegarder
+    // Sauvegarder l'URL
     const updateData: Record<string, string> = {
       [`image_url_${platform}`]: imageUrl,
       [`status_image_${platform}`]: 'completed',
